@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -56,6 +56,16 @@ class RegisterRequest(BaseModel):
     cols: int = Field(..., ge=1, le=MAX_DIM)
     member_names: List[str] = Field(..., min_length=2, max_length=8)
     thresholds: List[float] = Field(..., min_length=1)
+    change_tolerance: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "optional quality-control tolerance (mm) applied to every later submission: "
+            "a revision whose valid-cell rainfall moves by more than this against the "
+            "member's latest adopted revision, or that swaps valid/missing state, is held "
+            "for review instead of being adopted. Omit to keep the original behaviour."
+        ),
+    )
 
     @field_validator("forecast_time")
     @classmethod
@@ -89,6 +99,16 @@ class RegisterRequest(BaseModel):
             raise ValueError("thresholds must be unique")
         return [float(t) for t in v]
 
+    @field_validator("change_tolerance")
+    @classmethod
+    def _tolerance(cls, v: float | None) -> float | None:
+        if v is None:
+            return None
+        fv = float(v)
+        if isinstance(v, bool) or math.isnan(fv) or math.isinf(fv) or fv < 0:
+            raise ValueError("change_tolerance must be finite and non-negative")
+        return fv
+
     @model_validator(mode="after")
     def _shape_cap(self) -> "RegisterRequest":
         if self.rows * self.cols > MAX_CELLS:
@@ -110,3 +130,12 @@ class SubmitRequest(BaseModel):
         # errors share the same JSON error envelope.
         _check_grid(self.rain, self.missing)
         return self
+
+
+class ReviewRequest(BaseModel):
+    action: Literal["approve", "reject"] = Field(
+        ..., description="approve adopts a held revision; reject discards it"
+    )
+    comment: str | None = Field(
+        default=None, max_length=1000, description="optional reviewer note (audit only)"
+    )

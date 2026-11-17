@@ -13,14 +13,16 @@ from fastapi.responses import JSONResponse
 from . import __version__
 from .db import init_db
 from .errors import ApiError
-from .schemas import RegisterRequest, SubmitRequest
+from .schemas import RegisterRequest, ReviewRequest, SubmitRequest
 from . import service
 
 app = FastAPI(
     title="集合降雨超阈值概率 API",
     description=(
         "防汛值班用：登记 UTC 预报时次与集合成员，逐成员提交雨量网格修订，"
-        "成员齐全后发布逐格超阈值概率产品。支持双实例共享 SQLite 并发入仓与发布。"
+        "成员齐全后发布逐格超阈值概率产品。支持双实例共享 SQLite 并发入仓与发布；"
+        "可选单格变化容差会把疑似错位（超容差或有效/缺测互换）的更正暂存待核，"
+        "由质控员按修订号确认或退回后才影响发布。"
     ),
     version=__version__,
 )
@@ -80,6 +82,17 @@ def get_group(group_id: str) -> dict:
 )
 def submit_member(group_id: str, member_id: str, payload: SubmitRequest) -> dict:
     return service.submit_member(group_id, member_id, payload)
+
+
+@app.post(
+    "/groups/{group_id}/members/{member_id}/revisions/{revision}/review",
+    tags=["review"],
+    summary="质控员确认（采纳）或退回（丢弃）待核修订",
+)
+def review_revision(
+    group_id: str, member_id: str, revision: int, payload: ReviewRequest
+) -> dict:
+    return service.review_revision(group_id, member_id, revision, payload)
 
 
 @app.post(
